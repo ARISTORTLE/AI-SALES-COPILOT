@@ -75,6 +75,41 @@ def inject_styles() -> None:
             color: #f8f4ec;
         }
 
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] li,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] .stMarkdown {
+            color: #f8f4ec !important;
+        }
+
+        [data-testid="stSidebar"] code {
+            background: rgba(255, 216, 159, 0.16) !important;
+            color: #ffe3b9 !important;
+            border: 1px solid rgba(255, 216, 159, 0.22);
+            border-radius: 8px;
+            padding: 0.1rem 0.38rem;
+        }
+
+        [data-testid="stSidebar"] [data-baseweb="input"] input,
+        [data-testid="stSidebar"] [data-baseweb="base-input"] input,
+        [data-testid="stSidebar"] textarea {
+            background: rgba(255, 248, 239, 0.96) !important;
+            color: #13243a !important;
+            border-radius: 14px !important;
+        }
+
+        [data-testid="stSidebar"] input::placeholder,
+        [data-testid="stSidebar"] textarea::placeholder {
+            color: #66768a !important;
+            opacity: 1;
+        }
+
+        [data-testid="stSidebar"] [data-baseweb="input"] svg,
+        [data-testid="stSidebar"] [data-baseweb="base-input"] svg {
+            fill: #13243a !important;
+            color: #13243a !important;
+        }
+
         [data-testid="stFileUploader"] section,
         [data-testid="stExpander"],
         div[data-testid="stMetric"],
@@ -226,6 +261,16 @@ def inject_styles() -> None:
             border-radius: 18px;
             padding: 0.85rem 1rem;
             margin-top: 0.7rem;
+        }
+
+        [data-testid="stSidebar"] .upload-tip {
+            background: rgba(255, 248, 239, 0.08);
+            border: 1px solid rgba(201, 133, 45, 0.25);
+            color: #f8f4ec;
+        }
+
+        [data-testid="stSidebar"] .upload-tip strong {
+            color: #ffe3b9;
         }
 
         .copilot-shell {
