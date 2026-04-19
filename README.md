@@ -6,7 +6,7 @@ A simple MVP for Indian small businesses to upload sales data and get practical 
 - which products generate the highest margin
 - what should be restocked soon
 - a basic 7-day revenue forecast using linear regression
-- an optional Grok-powered owner briefing
+- an optional Groq-powered owner briefing
 
 ## Run locally
 
@@ -31,17 +31,17 @@ Optional columns:
 
 The app also understands common aliases such as `qty`, `sales`, `item`, and `inventory`.
 
-## Optional Grok Copilot
+## Optional Groq Copilot
 
-To enable the owner briefing with Grok, provide an xAI API key either:
+To enable the owner briefing with Groq, provide a Groq API key either:
 
 - in the app sidebar during runtime, or
-- through Streamlit secrets as `XAI_API_KEY`
+- through Streamlit secrets as `GROQ_API_KEY`
 
 Optional secrets example:
 
 ```toml
-XAI_API_KEY="your_xai_api_key_here"
+GROQ_API_KEY="your_groq_api_key_here"
 ```
 
 ## Example insights
