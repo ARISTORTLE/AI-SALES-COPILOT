@@ -306,6 +306,28 @@ def inject_styles() -> None:
             margin-bottom: 0.2rem;
         }
 
+        .status-chip {
+            display: inline-block;
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            margin-bottom: 0.75rem;
+        }
+
+        .status-chip.connected {
+            background: rgba(14, 143, 121, 0.18);
+            border: 1px solid rgba(14, 143, 121, 0.35);
+            color: #b9f3e8;
+        }
+
+        .status-chip.manual {
+            background: rgba(201, 133, 45, 0.16);
+            border: 1px solid rgba(201, 133, 45, 0.32);
+            color: #ffe3b9;
+        }
+
         @media (max-width: 900px) {
             .hero-title {
                 font-size: 2.2rem;
@@ -391,12 +413,34 @@ with st.sidebar:
     st.divider()
     st.header("Groq Copilot")
     saved_api_key = st.secrets.get("GROQ_API_KEY", "")
-    api_key_input = st.text_input(
-        "Groq API key",
-        value=saved_api_key,
-        type="password",
-        help="Optional. Add your Groq key here or save it as GROQ_API_KEY in Streamlit secrets.",
-    )
+    has_saved_key = bool(saved_api_key)
+
+    if has_saved_key:
+        st.markdown(
+            '<div class="status-chip connected">Groq connected via Streamlit secrets</div>',
+            unsafe_allow_html=True,
+        )
+        manual_key_override = st.toggle(
+            "Use a different Groq key for this session",
+            value=False,
+            help="Keep this off for normal production use. Turn it on only if you want to test with another key.",
+        )
+    else:
+        st.markdown(
+            '<div class="status-chip manual">No saved Groq key detected</div>',
+            unsafe_allow_html=True,
+        )
+        manual_key_override = True
+
+    api_key_input = saved_api_key
+    if manual_key_override:
+        api_key_input = st.text_input(
+            "Groq API key",
+            value="",
+            type="password",
+            help="Paste a Groq key for this session, or save GROQ_API_KEY in Streamlit secrets for permanent use.",
+        ) or saved_api_key
+
     model_name = st.text_input(
         "Model",
         value=DEFAULT_MODEL,
@@ -504,7 +548,10 @@ with copilot_col:
     trigger_brief = st.button("Generate Groq Owner Briefing", use_container_width=True)
 with config_col:
     if api_key_input:
-        st.caption(f"AI ready with model `{model_name.strip() or DEFAULT_MODEL}`")
+        if has_saved_key and not manual_key_override:
+            st.caption(f"Groq connected from secrets using model `{model_name.strip() or DEFAULT_MODEL}`")
+        else:
+            st.caption(f"Groq ready with model `{model_name.strip() or DEFAULT_MODEL}`")
     else:
         st.caption("Add a Groq API key in the sidebar to enable the Groq briefing.")
 
