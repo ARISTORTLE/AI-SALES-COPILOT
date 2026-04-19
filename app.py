@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 
 from ai_copilot import DEFAULT_MODEL, build_copilot_payload, generate_owner_brief
 from analyzer import build_insights, prepare_sales_data
@@ -25,6 +26,13 @@ def load_uploaded_data(uploaded_file) -> pd.DataFrame:
 
 def format_currency(value: float) -> str:
     return f"Rs. {value:,.0f}"
+
+
+def get_secret(key: str, default: str = "") -> str:
+    try:
+        return st.secrets.get(key, default)
+    except StreamlitSecretNotFoundError:
+        return default
 
 
 def inject_styles() -> None:
@@ -412,7 +420,7 @@ with st.sidebar:
     )
     st.divider()
     st.header("Groq Copilot")
-    saved_api_key = st.secrets.get("GROQ_API_KEY", "")
+    saved_api_key = get_secret("GROQ_API_KEY", "")
     has_saved_key = bool(saved_api_key)
 
     if has_saved_key:
