@@ -90,6 +90,7 @@ Business focus:
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "AI-Sales-CoPilot/1.0 (+Streamlit; Python urllib)",
         },
         method="POST",
     )
