@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import pandas as pd
 
@@ -45,15 +47,6 @@ def generate_owner_brief(
     model: str = DEFAULT_MODEL,
     focus_prompt: str = "",
 ) -> str:
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise RuntimeError(
-            "The API client package is not installed. Run `pip install -r requirements.txt` first."
-        ) from exc
-
-    client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL)
-
     focus = focus_prompt.strip() or (
         "Focus on practical actions to increase revenue, protect margin, and avoid stockouts."
     )
@@ -82,9 +75,40 @@ Business focus:
 {focus}
 """.strip()
 
-    response = client.responses.create(
-        model=model,
-        instructions=instructions,
-        input=f"Sales analytics payload:\n{payload}",
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": f"Sales analytics payload:\n{payload}"},
+        ],
+        "temperature": 0.4,
+    }
+
+    request = Request(
+        url=f"{GROQ_BASE_URL}/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
-    return response.output_text.strip()
+
+    try:
+        with urlopen(request, timeout=60) as response:
+            parsed = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Groq API request failed: {detail or exc.reason}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Could not reach Groq API: {exc.reason}") from exc
+
+    choices = parsed.get("choices", [])
+    if not choices:
+        raise RuntimeError("Groq API returned no choices.")
+
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if not content:
+        raise RuntimeError("Groq API returned an empty response.")
+    return content.strip()
