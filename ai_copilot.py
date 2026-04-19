@@ -6,7 +6,8 @@ from typing import Any
 import pandas as pd
 
 
-DEFAULT_MODEL = "gpt-4.1-mini"
+DEFAULT_MODEL = "grok-4-1-fast-non-reasoning"
+XAI_BASE_URL = "https://api.x.ai/v1"
 
 
 def _table_records(frame: pd.DataFrame, limit: int = 5) -> list[dict[str, Any]]:
@@ -48,10 +49,10 @@ def generate_owner_brief(
         from openai import OpenAI
     except ImportError as exc:
         raise RuntimeError(
-            "The OpenAI package is not installed. Run `pip install -r requirements.txt` first."
+            "The API client package is not installed. Run `pip install -r requirements.txt` first."
         ) from exc
 
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, base_url=XAI_BASE_URL)
 
     focus = focus_prompt.strip() or (
         "Focus on practical actions to increase revenue, protect margin, and avoid stockouts."

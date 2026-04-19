@@ -389,18 +389,18 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.divider()
-    st.header("AI Copilot")
-    saved_api_key = st.secrets.get("OPENAI_API_KEY", "")
+    st.header("Grok Copilot")
+    saved_api_key = st.secrets.get("XAI_API_KEY", "")
     api_key_input = st.text_input(
-        "OpenAI API key",
+        "xAI API key",
         value=saved_api_key,
         type="password",
-        help="Optional. Add your key here or save it as OPENAI_API_KEY in Streamlit secrets.",
+        help="Optional. Add your xAI key here or save it as XAI_API_KEY in Streamlit secrets.",
     )
     model_name = st.text_input(
         "Model",
         value=DEFAULT_MODEL,
-        help="Change this if you want to try a different OpenAI text model.",
+        help="Change this if you want to try a different Grok/xAI model.",
     )
     business_context = st.text_area(
         "Business context",
@@ -489,7 +489,7 @@ st.markdown(
     """
     <div class="copilot-shell">
         <div class="copilot-badge">LLM Layer</div>
-        <h3>AI Owner Copilot</h3>
+        <h3>Grok Owner Copilot</h3>
         <div class="copilot-copy">
             Generate a plain-English owner briefing from the sales analytics below. This gives you
             a sharper startup demo and a more useful summary for non-technical business users.
@@ -501,16 +501,16 @@ st.markdown(
 
 copilot_col, config_col = st.columns((1.35, 1))
 with copilot_col:
-    trigger_brief = st.button("Generate AI Owner Briefing", use_container_width=True)
+    trigger_brief = st.button("Generate Grok Owner Briefing", use_container_width=True)
 with config_col:
     if api_key_input:
         st.caption(f"AI ready with model `{model_name.strip() or DEFAULT_MODEL}`")
     else:
-        st.caption("Add an OpenAI API key in the sidebar to enable the AI briefing.")
+        st.caption("Add an xAI API key in the sidebar to enable the Grok briefing.")
 
 if trigger_brief:
     if not api_key_input:
-        st.warning("Add an OpenAI API key in the sidebar first, then generate the briefing.")
+        st.warning("Add an xAI API key in the sidebar first, then generate the Grok briefing.")
     else:
         payload = build_copilot_payload(
             summary=insights.summary,
@@ -534,7 +534,7 @@ if trigger_brief:
 if st.session_state.get("owner_brief"):
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="section-label">Owner Briefing</div>', unsafe_allow_html=True)
-    st.subheader("What the AI sales copilot recommends")
+    st.subheader("What the Grok sales copilot recommends")
     st.markdown(st.session_state["owner_brief"])
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -566,7 +566,7 @@ with brief_right:
     )
     render_info_block(
         "LLM enabled",
-        "Add an OpenAI key in the sidebar and the app can turn the dashboard into an owner-friendly action brief.",
+        "Add an xAI key in the sidebar and the app can turn the dashboard into an owner-friendly action brief.",
     )
 st.markdown('</div>', unsafe_allow_html=True)
 
