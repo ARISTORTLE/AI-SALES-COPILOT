@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from ai_copilot import DEFAULT_MODEL, build_copilot_payload, generate_owner_brief
 from analyzer import build_insights, prepare_sales_data
 
 
@@ -227,6 +228,39 @@ def inject_styles() -> None:
             margin-top: 0.7rem;
         }
 
+        .copilot-shell {
+            background: linear-gradient(135deg, rgba(19, 36, 58, 0.98), rgba(38, 72, 50, 0.92));
+            border: 1px solid rgba(255, 248, 239, 0.12);
+            color: #fff8ef;
+            border-radius: 26px;
+            padding: 1.2rem 1.25rem;
+            box-shadow: var(--shadow);
+            margin-bottom: 1rem;
+        }
+
+        .copilot-shell h3 {
+            color: #fff8ef;
+            margin-bottom: 0.35rem;
+        }
+
+        .copilot-badge {
+            display: inline-block;
+            margin-bottom: 0.5rem;
+            padding: 0.28rem 0.62rem;
+            border-radius: 999px;
+            background: rgba(255, 216, 159, 0.15);
+            color: #ffd89f;
+            font-size: 0.76rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        .copilot-copy {
+            color: rgba(248, 244, 236, 0.88);
+            margin-bottom: 0.2rem;
+        }
+
         @media (max-width: 900px) {
             .hero-title {
                 font-size: 2.2rem;
@@ -309,6 +343,30 @@ with st.sidebar:
         '<div class="upload-tip"><strong>Best results:</strong> one row per sale or per product-date summary.</div>',
         unsafe_allow_html=True,
     )
+    st.divider()
+    st.header("AI Copilot")
+    saved_api_key = st.secrets.get("OPENAI_API_KEY", "")
+    api_key_input = st.text_input(
+        "OpenAI API key",
+        value=saved_api_key,
+        type="password",
+        help="Optional. Add your key here or save it as OPENAI_API_KEY in Streamlit secrets.",
+    )
+    model_name = st.text_input(
+        "Model",
+        value=DEFAULT_MODEL,
+        help="Change this if you want to try a different OpenAI text model.",
+    )
+    business_context = st.text_area(
+        "Business context",
+        placeholder="Example: Neighborhood cafe in Pune. Want to improve weekday evening sales.",
+        help="Optional context helps the AI tailor its recommendations.",
+    )
+    focus_prompt = st.text_area(
+        "Ask the copilot to focus on",
+        placeholder="Example: Improve revenue without hurting margins too much.",
+        help="Optional steering prompt for the owner briefing.",
+    )
 
 
 example_data = pd.DataFrame(
@@ -382,6 +440,59 @@ with kpi_3:
 with kpi_4:
     render_kpi("7-Day Forecast", format_currency(insights.summary["predicted_revenue_7d"]), "Simple linear projection from recent trend")
 
+st.markdown(
+    """
+    <div class="copilot-shell">
+        <div class="copilot-badge">LLM Layer</div>
+        <h3>AI Owner Copilot</h3>
+        <div class="copilot-copy">
+            Generate a plain-English owner briefing from the sales analytics below. This gives you
+            a sharper startup demo and a more useful summary for non-technical business users.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+copilot_col, config_col = st.columns((1.35, 1))
+with copilot_col:
+    trigger_brief = st.button("Generate AI Owner Briefing", use_container_width=True)
+with config_col:
+    if api_key_input:
+        st.caption(f"AI ready with model `{model_name.strip() or DEFAULT_MODEL}`")
+    else:
+        st.caption("Add an OpenAI API key in the sidebar to enable the AI briefing.")
+
+if trigger_brief:
+    if not api_key_input:
+        st.warning("Add an OpenAI API key in the sidebar first, then generate the briefing.")
+    else:
+        payload = build_copilot_payload(
+            summary=insights.summary,
+            insight_cards=insights.insight_cards,
+            weekday_performance=insights.weekday_performance,
+            product_performance=insights.product_performance,
+            restock_table=insights.restock_table,
+            business_context=business_context,
+        )
+        with st.spinner("Writing your owner briefing..."):
+            try:
+                st.session_state["owner_brief"] = generate_owner_brief(
+                    api_key=api_key_input,
+                    payload=payload,
+                    model=model_name.strip() or DEFAULT_MODEL,
+                    focus_prompt=focus_prompt,
+                )
+            except Exception as exc:
+                st.error(f"AI briefing failed: {exc}")
+
+if st.session_state.get("owner_brief"):
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">Owner Briefing</div>', unsafe_allow_html=True)
+    st.subheader("What the AI sales copilot recommends")
+    st.markdown(st.session_state["owner_brief"])
+    st.markdown('</div>', unsafe_allow_html=True)
+
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
 st.markdown('<div class="section-label">AI Briefing</div>', unsafe_allow_html=True)
 brief_left, brief_right = st.columns((1.25, 1))
@@ -409,8 +520,8 @@ with brief_right:
         "The app accepts common column aliases so real-world Excel files need less cleanup.",
     )
     render_info_block(
-        "Easy next upgrade",
-        "You can layer an LLM on top later to convert analytics into plain-English business advice.",
+        "LLM enabled",
+        "Add an OpenAI key in the sidebar and the app can turn the dashboard into an owner-friendly action brief.",
     )
 st.markdown('</div>', unsafe_allow_html=True)
 
