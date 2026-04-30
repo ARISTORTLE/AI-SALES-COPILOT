@@ -28,6 +28,10 @@ def format_currency(value: float) -> str:
     return f"Rs. {value:,.0f}"
 
 
+def format_number(value: float) -> str:
+    return f"{value:,.0f}"
+
+
 def get_secret(key: str, default: str = "") -> str:
     try:
         return st.secrets.get(key, default)
@@ -220,6 +224,63 @@ def inject_styles() -> None:
             box-shadow: var(--shadow);
         }
 
+        .snapshot-card {
+            background: linear-gradient(160deg, rgba(255, 252, 246, 0.96), rgba(242, 235, 224, 0.92));
+            border: 1px solid rgba(19, 36, 58, 0.08);
+            border-radius: 24px;
+            padding: 1.1rem 1.1rem 1rem 1.1rem;
+            box-shadow: var(--shadow);
+            min-height: 180px;
+        }
+
+        .snapshot-label {
+            color: var(--muted);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 700;
+            margin-bottom: 0.35rem;
+        }
+
+        .snapshot-title {
+            font-family: 'Space Grotesk', sans-serif;
+            color: var(--ink);
+            font-size: 1.6rem;
+            line-height: 1.05;
+            margin-bottom: 0.35rem;
+        }
+
+        .snapshot-copy {
+            color: var(--muted);
+            font-size: 0.95rem;
+            margin-bottom: 0.85rem;
+        }
+
+        .snapshot-stat {
+            color: var(--ink);
+            font-size: 1rem;
+            font-weight: 700;
+        }
+
+        .briefing-shell {
+            background: linear-gradient(140deg, rgba(19, 36, 58, 0.98), rgba(23, 88, 93, 0.93));
+            border-radius: 28px;
+            padding: 1.2rem;
+            border: 1px solid rgba(255, 248, 239, 0.12);
+            box-shadow: var(--shadow);
+            margin-bottom: 1rem;
+        }
+
+        .briefing-shell h3 {
+            color: #fff8ef;
+            margin: 0.25rem 0 0.5rem 0;
+        }
+
+        .briefing-shell p {
+            color: rgba(248, 244, 236, 0.84);
+            margin-bottom: 0;
+        }
+
         .kpi-label {
             color: var(--muted);
             font-size: 0.83rem;
@@ -376,6 +437,20 @@ def render_info_block(title: str, body: str) -> None:
     )
 
 
+def render_snapshot_card(label: str, title: str, body: str, stat: str) -> None:
+    st.markdown(
+        f"""
+        <div class="snapshot-card">
+            <div class="snapshot-label">{label}</div>
+            <div class="snapshot-title">{title}</div>
+            <div class="snapshot-copy">{body}</div>
+            <div class="snapshot-stat">{stat}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 inject_styles()
 
 st.markdown(
@@ -402,16 +477,16 @@ with st.sidebar:
     st.markdown(
         """
         Required columns:
-        - `date`
-        - `product`
+        - `Order Date` or `date`
+        - `Sub-Category` or `product`
         - `quantity`
-        - `revenue`
+        - `Amount` or `revenue`
 
         Helpful extras:
-        - `cost`
+        - `Profit`
         - `stock`
 
-        Aliases like `qty`, `sales`, `item`, and `inventory` are supported.
+        Your current CSV format with `Amount`, `Profit`, and `Sub-Category` is supported directly.
         """
     )
     st.markdown(
@@ -486,8 +561,8 @@ with intro_col:
         """
         This MVP reads your sales file, cleans common column names, and gives you:
         - weak weekdays and strong weekdays
-        - top margin products
-        - recent-demand-based restocking suggestions
+        - top profit-driving sub-categories
+        - restocking suggestions when stock data is available
         - a simple 7-day revenue forecast
         """
     )
@@ -526,6 +601,72 @@ except Exception as exc:
     st.error(str(exc))
     st.stop()
 
+date_min = sales_data["date"].min()
+date_max = sales_data["date"].max()
+top_category = None
+if "category" in sales_data.columns and sales_data["category"].notna().any():
+    category_summary = (
+        sales_data.groupby("category", as_index=False)
+        .agg(revenue=("revenue", "sum"), margin=("gross_margin", "sum"), quantity=("quantity", "sum"))
+        .sort_values("revenue", ascending=False)
+        .reset_index(drop=True)
+    )
+    top_category = category_summary.iloc[0]
+else:
+    category_summary = pd.DataFrame()
+
+top_state = None
+if "state" in sales_data.columns and sales_data["state"].notna().any():
+    state_summary = (
+        sales_data.groupby("state", as_index=False)
+        .agg(revenue=("revenue", "sum"), margin=("gross_margin", "sum"), orders=("revenue", "size"))
+        .sort_values("revenue", ascending=False)
+        .reset_index(drop=True)
+    )
+    top_state = state_summary.iloc[0]
+else:
+    state_summary = pd.DataFrame()
+
+top_payment = None
+if "payment_mode" in sales_data.columns and sales_data["payment_mode"].notna().any():
+    payment_summary = (
+        sales_data.groupby("payment_mode", as_index=False)
+        .agg(revenue=("revenue", "sum"), margin=("gross_margin", "sum"), orders=("revenue", "size"))
+        .sort_values("revenue", ascending=False)
+        .reset_index(drop=True)
+    )
+    top_payment = payment_summary.iloc[0]
+else:
+    payment_summary = pd.DataFrame()
+
+if "year_month" in sales_data.columns and sales_data["year_month"].notna().any():
+    monthly_summary = (
+        sales_data.groupby("year_month", as_index=False)
+        .agg(revenue=("revenue", "sum"), margin=("gross_margin", "sum"))
+        .sort_values("year_month")
+    )
+else:
+    monthly_summary = (
+        sales_data.assign(year_month=sales_data["date"].dt.to_period("M").astype(str))
+        .groupby("year_month", as_index=False)
+        .agg(revenue=("revenue", "sum"), margin=("gross_margin", "sum"))
+        .sort_values("year_month")
+    )
+
+st.markdown(
+    f"""
+    <div class="briefing-shell">
+        <div class="copilot-badge">Executive Dashboard</div>
+        <h3>Sales briefing for {date_min:%d %b %Y} to {date_max:%d %b %Y}</h3>
+        <p>
+            This view is now shaped around your actual sales dataset, so the interface highlights revenue,
+            profit, geography, and payment behavior in a way that feels closer to a founder demo than a raw CSV reader.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.markdown('<div class="section-label">Performance Snapshot</div>', unsafe_allow_html=True)
 kpi_1, kpi_2, kpi_3, kpi_4 = st.columns(4)
 with kpi_1:
@@ -536,6 +677,53 @@ with kpi_3:
     render_kpi("Rows Processed", f"{insights.summary['total_orders']:,}", "Transactions or daily product rows analyzed")
 with kpi_4:
     render_kpi("7-Day Forecast", format_currency(insights.summary["predicted_revenue_7d"]), "Simple linear projection from recent trend")
+
+focus_1, focus_2, focus_3 = st.columns(3)
+with focus_1:
+    if top_category is not None:
+        render_snapshot_card(
+            "Top Category",
+            str(top_category["category"]),
+            "This category is currently driving the largest share of sales volume in the uploaded dataset.",
+            f"Revenue {format_currency(float(top_category['revenue']))}",
+        )
+    else:
+        render_snapshot_card(
+            "Top Product",
+            str(insights.product_performance.iloc[0]['product']),
+            "This sub-category is contributing the strongest combined commercial performance right now.",
+            f"Margin {format_currency(float(insights.product_performance.iloc[0]['total_margin']))}",
+        )
+with focus_2:
+    if top_state is not None:
+        render_snapshot_card(
+            "Top State",
+            str(top_state["state"]),
+            "Geographic concentration matters for targeting campaigns and inventory planning.",
+            f"Revenue {format_currency(float(top_state['revenue']))}",
+        )
+    else:
+        render_snapshot_card(
+            "High Margin Leader",
+            str(insights.product_performance.iloc[0]["product"]),
+            "This product currently contributes the most profit across the dataset.",
+            f"Margin {format_currency(float(insights.product_performance.iloc[0]['total_margin']))}",
+        )
+with focus_3:
+    if top_payment is not None:
+        render_snapshot_card(
+            "Top Payment Mode",
+            str(top_payment["payment_mode"]),
+            "Useful for checkout optimization and understanding which channels customers prefer.",
+            f"Orders {format_number(float(top_payment['orders']))}",
+        )
+    else:
+        render_snapshot_card(
+            "Rows Analyzed",
+            "Dataset Loaded",
+            "The uploaded sales export has been normalized and is ready for owner-facing insights.",
+            f"{format_number(insights.summary['total_orders'])} rows",
+        )
 
 st.markdown(
     """
@@ -625,52 +813,106 @@ with brief_right:
     )
 st.markdown('</div>', unsafe_allow_html=True)
 
-left_col, right_col = st.columns((1.35, 1))
+overview_tab, market_tab, data_tab = st.tabs(["Overview", "Market View", "Data Room"])
 
-with left_col:
+with overview_tab:
+    left_col, right_col = st.columns((1.35, 1))
+
+    with left_col:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Revenue Momentum</div>', unsafe_allow_html=True)
+        st.subheader("Daily Revenue Trend")
+        trend_chart = insights.daily_trend.set_index("date")["revenue"]
+        st.line_chart(trend_chart, use_container_width=True, color="#0e8f79")
+        st.caption("Use this to spot sharp dips, recovery weeks, and whether demand is flattening out.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Month by Month</div>', unsafe_allow_html=True)
+        st.subheader("Monthly Revenue Arc")
+        month_chart = monthly_summary.set_index("year_month")["revenue"]
+        st.area_chart(month_chart, use_container_width=True, color="#c0543f")
+        st.caption("This gives the founder-style view: where growth compounds, where seasonality bites, and where campaigns may have worked.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with right_col:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Weekday Behavior</div>', unsafe_allow_html=True)
+        st.subheader("Average Revenue by Day")
+        weekday_chart = insights.weekday_performance.set_index("weekday")["avg_revenue"]
+        st.bar_chart(weekday_chart, use_container_width=True, color="#c9852d")
+        st.caption("This is the fastest way to verify claims like sales always falling on Tuesdays.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Profit Leaders</div>', unsafe_allow_html=True)
+        st.subheader("Top Products by Margin")
+        product_view = insights.product_performance.head(10).copy()
+        product_view["total_revenue"] = product_view["total_revenue"].map(format_currency)
+        product_view["total_margin"] = product_view["total_margin"].map(format_currency)
+        product_view["avg_margin_pct"] = product_view["avg_margin_pct"].map(lambda value: f"{value:.1f}%")
+        st.dataframe(product_view, use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+with market_tab:
+    market_left, market_right = st.columns((1, 1))
+
+    with market_left:
+        if not category_summary.empty:
+            st.markdown('<div class="section-card">', unsafe_allow_html=True)
+            st.markdown('<div class="section-label">Category Mix</div>', unsafe_allow_html=True)
+            st.subheader("Revenue by Category")
+            st.bar_chart(category_summary.set_index("category")["revenue"], use_container_width=True, color="#0e8f79")
+            category_view = category_summary.copy()
+            category_view["revenue"] = category_view["revenue"].map(format_currency)
+            category_view["margin"] = category_view["margin"].map(format_currency)
+            category_view["quantity"] = category_view["quantity"].map(format_number)
+            st.dataframe(category_view, use_container_width=True, hide_index=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        if not payment_summary.empty:
+            st.markdown('<div class="section-card">', unsafe_allow_html=True)
+            st.markdown('<div class="section-label">Checkout Behavior</div>', unsafe_allow_html=True)
+            st.subheader("Payment Modes")
+            st.bar_chart(payment_summary.set_index("payment_mode")["revenue"], use_container_width=True, color="#c9852d")
+            payment_view = payment_summary.copy()
+            payment_view["revenue"] = payment_view["revenue"].map(format_currency)
+            payment_view["margin"] = payment_view["margin"].map(format_currency)
+            payment_view["orders"] = payment_view["orders"].map(format_number)
+            st.dataframe(payment_view, use_container_width=True, hide_index=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    with market_right:
+        if not state_summary.empty:
+            st.markdown('<div class="section-card">', unsafe_allow_html=True)
+            st.markdown('<div class="section-label">Geography</div>', unsafe_allow_html=True)
+            st.subheader("Top States by Revenue")
+            st.bar_chart(state_summary.head(10).set_index("state")["revenue"], use_container_width=True, color="#c0543f")
+            state_view = state_summary.head(10).copy()
+            state_view["revenue"] = state_view["revenue"].map(format_currency)
+            state_view["margin"] = state_view["margin"].map(format_currency)
+            state_view["orders"] = state_view["orders"].map(format_number)
+            st.dataframe(state_view, use_container_width=True, hide_index=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Inventory Watch</div>', unsafe_allow_html=True)
+        st.subheader("Restocking Recommendations")
+        restock_view = insights.restock_table.copy()
+        if "days_of_cover" in restock_view.columns:
+            restock_view["days_of_cover"] = restock_view["days_of_cover"].map(
+                lambda value: "-" if pd.isna(value) else f"{value:.1f}"
+            )
+        if "avg_daily_demand" in restock_view.columns:
+            restock_view["avg_daily_demand"] = restock_view["avg_daily_demand"].map(lambda value: f"{value:.1f}")
+        st.dataframe(restock_view, use_container_width=True, hide_index=True)
+        st.caption("This section becomes much more actionable when your source file includes a real stock column.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+with data_tab:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-label">Revenue Momentum</div>', unsafe_allow_html=True)
-    st.subheader("Daily Revenue Trend")
-    trend_chart = insights.daily_trend.set_index("date")["revenue"]
-    st.line_chart(trend_chart, use_container_width=True, color="#0e8f79")
-    st.caption("Use this to spot sharp dips, recovery weeks, and whether demand is flattening out.")
+    st.markdown('<div class="section-label">Data Confidence</div>', unsafe_allow_html=True)
+    st.subheader("Cleaned Data Preview")
+    st.dataframe(sales_data.head(50), use_container_width=True, hide_index=True)
+    st.caption("Review this preview if a result looks surprising. It shows the columns after cleanup and normalization.")
     st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-label">Weekday Behavior</div>', unsafe_allow_html=True)
-    st.subheader("Average Revenue by Day")
-    weekday_chart = insights.weekday_performance.set_index("weekday")["avg_revenue"]
-    st.bar_chart(weekday_chart, use_container_width=True, color="#c9852d")
-    st.caption("This is the fastest way to verify claims like sales always falling on Tuesdays.")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with right_col:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-label">Profit Leaders</div>', unsafe_allow_html=True)
-    st.subheader("Top Products by Margin")
-    product_view = insights.product_performance.head(10).copy()
-    product_view["total_revenue"] = product_view["total_revenue"].map(format_currency)
-    product_view["total_margin"] = product_view["total_margin"].map(format_currency)
-    product_view["avg_margin_pct"] = product_view["avg_margin_pct"].map(lambda value: f"{value:.1f}%")
-    st.dataframe(product_view, use_container_width=True, hide_index=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-label">Inventory Watch</div>', unsafe_allow_html=True)
-    st.subheader("Restocking Recommendations")
-    restock_view = insights.restock_table.copy()
-    if "days_of_cover" in restock_view.columns:
-        restock_view["days_of_cover"] = restock_view["days_of_cover"].map(
-            lambda value: "-" if pd.isna(value) else f"{value:.1f}"
-        )
-    if "avg_daily_demand" in restock_view.columns:
-        restock_view["avg_daily_demand"] = restock_view["avg_daily_demand"].map(lambda value: f"{value:.1f}")
-    st.dataframe(restock_view, use_container_width=True, hide_index=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown('<div class="section-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-label">Data Confidence</div>', unsafe_allow_html=True)
-st.subheader("Cleaned Data Preview")
-st.dataframe(sales_data.head(50), use_container_width=True, hide_index=True)
-st.caption("Review this preview if a result looks surprising. It shows the columns after cleanup and normalization.")
-st.markdown('</div>', unsafe_allow_html=True)

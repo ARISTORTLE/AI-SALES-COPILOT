@@ -14,10 +14,14 @@ ALIASES = {
     "order_date": "date",
     "invoice_date": "date",
     "day": "date",
+    "order_id": "order_id",
+    "orderid": "order_id",
     "product": "product",
     "item": "product",
     "sku": "product",
     "product_name": "product",
+    "sub_category": "product",
+    "sub-category": "product",
     "quantity": "quantity",
     "qty": "quantity",
     "units": "quantity",
@@ -27,6 +31,9 @@ ALIASES = {
     "sales_amount": "revenue",
     "amount": "revenue",
     "gmv": "revenue",
+    "profit": "profit",
+    "margin": "profit",
+    "gross_profit": "profit",
     "cost": "cost",
     "cogs": "cost",
     "unit_cost": "cost",
@@ -34,6 +41,14 @@ ALIASES = {
     "inventory": "stock",
     "on_hand": "stock",
     "stock_on_hand": "stock",
+    "category": "category",
+    "payment_mode": "payment_mode",
+    "paymentmode": "payment_mode",
+    "customer_name": "customer_name",
+    "customername": "customer_name",
+    "state": "state",
+    "city": "city",
+    "year_month": "year_month",
 }
 
 
@@ -50,7 +65,7 @@ class SalesInsights:
 def _normalise_columns(frame: pd.DataFrame) -> pd.DataFrame:
     renamed = {}
     for column in frame.columns:
-        clean = str(column).strip().lower().replace(" ", "_")
+        clean = str(column).strip().lower().replace(" ", "_").replace("-", "_")
         renamed[column] = ALIASES.get(clean, clean)
     return frame.rename(columns=renamed)
 
@@ -70,18 +85,25 @@ def prepare_sales_data(frame: pd.DataFrame) -> pd.DataFrame:
     data["date"] = pd.to_datetime(data["date"], errors="coerce")
     data = data.dropna(subset=["date", "product"])
 
-    for numeric_col in ["quantity", "revenue", "cost", "stock"]:
+    for numeric_col in ["quantity", "revenue", "profit", "cost", "stock"]:
         if numeric_col in data.columns:
             data[numeric_col] = pd.to_numeric(data[numeric_col], errors="coerce")
 
     data["quantity"] = data["quantity"].fillna(0)
     data["revenue"] = data["revenue"].fillna(0)
+    if "profit" not in data.columns:
+        data["profit"] = np.nan
     if "cost" not in data.columns:
         data["cost"] = np.nan
     if "stock" not in data.columns:
         data["stock"] = np.nan
 
-    data["gross_margin"] = data["revenue"] - data["cost"].fillna(0)
+    # Prefer explicit profit when the dataset provides it. Fall back to revenue-cost.
+    data["gross_margin"] = np.where(
+        data["profit"].notna(),
+        data["profit"],
+        data["revenue"] - data["cost"].fillna(0),
+    )
     data["margin_pct"] = np.where(
         data["revenue"] > 0,
         (data["gross_margin"] / data["revenue"]) * 100,
