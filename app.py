@@ -37,11 +37,47 @@ def format_number(value: float) -> str:
     return f"{value:,.0f}"
 
 
+def format_label(name: str) -> str:
+    return str(name).replace("_", " ").title()
+
+
 def get_secret(key: str, default: str = "") -> str:
     try:
         return st.secrets.get(key, default)
     except StreamlitSecretNotFoundError:
         return default
+
+
+def available_dimension_columns(frame: pd.DataFrame) -> list[str]:
+    preferred = [
+        "category",
+        "state",
+        "city",
+        "payment_mode",
+        "customer_name",
+        "product",
+    ]
+    dimensions: list[str] = []
+    for column in preferred:
+        if column in frame.columns and frame[column].notna().any():
+            unique_count = frame[column].nunique(dropna=True)
+            if 1 < unique_count <= 60:
+                dimensions.append(column)
+    return dimensions
+
+
+def summarise_dimension(frame: pd.DataFrame, column: str) -> pd.DataFrame:
+    return (
+        frame.groupby(column, as_index=False)
+        .agg(
+            revenue=("revenue", "sum"),
+            margin=("gross_margin", "sum"),
+            quantity=("quantity", "sum"),
+            rows=("revenue", "size"),
+        )
+        .sort_values("revenue", ascending=False)
+        .reset_index(drop=True)
+    )
 
 
 def inject_styles() -> None:
@@ -590,17 +626,17 @@ with st.sidebar:
     st.header("Upload Guide")
     st.markdown(
         """
-        Required columns:
-        - `Order Date` or `date`
-        - `Sub-Category` or `product`
-        - `quantity`
-        - `Amount` or `revenue`
+        Required fields:
+        - a date column like `Order Date`
+        - a product-like column like `Sub-Category`
+        - a quantity column
+        - a revenue column like `Amount`
 
         Helpful extras:
         - `Profit`
         - `stock`
 
-        Your current CSV format with `Amount`, `Profit`, and `Sub-Category` is supported directly.
+        The app will auto-detect supported fields and adapt filters plus dashboard sections where possible.
         """
     )
     st.markdown(
@@ -714,16 +750,15 @@ except Exception as exc:
     st.error(str(exc))
     st.stop()
 
+dimension_columns = available_dimension_columns(all_sales_data)
+
 filter_cols = st.columns(4)
-with filter_cols[0]:
-    category_options = sorted(all_sales_data["category"].dropna().unique().tolist()) if "category" in all_sales_data.columns else []
-    selected_categories = st.multiselect("Category", category_options)
-with filter_cols[1]:
-    state_options = sorted(all_sales_data["state"].dropna().unique().tolist()) if "state" in all_sales_data.columns else []
-    selected_states = st.multiselect("State", state_options)
-with filter_cols[2]:
-    payment_options = sorted(all_sales_data["payment_mode"].dropna().unique().tolist()) if "payment_mode" in all_sales_data.columns else []
-    selected_payments = st.multiselect("Payment Mode", payment_options)
+selected_dimension_values: dict[str, list[str]] = {}
+for index, column in enumerate(dimension_columns[:3]):
+    with filter_cols[index]:
+        options = sorted(all_sales_data[column].dropna().astype(str).unique().tolist())
+        selected_dimension_values[column] = st.multiselect(format_label(column), options)
+
 with filter_cols[3]:
     min_date = all_sales_data["date"].min().date()
     max_date = all_sales_data["date"].max().date()
@@ -735,12 +770,9 @@ with filter_cols[3]:
     )
 
 sales_data = all_sales_data.copy()
-if selected_categories:
-    sales_data = sales_data[sales_data["category"].isin(selected_categories)]
-if selected_states:
-    sales_data = sales_data[sales_data["state"].isin(selected_states)]
-if selected_payments:
-    sales_data = sales_data[sales_data["payment_mode"].isin(selected_payments)]
+for column, selected_values in selected_dimension_values.items():
+    if selected_values:
+        sales_data = sales_data[sales_data[column].astype(str).isin(selected_values)]
 if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
     start_date, end_date = selected_dates
     sales_data = sales_data[
@@ -756,41 +788,26 @@ insights = build_insights(sales_data)
 
 date_min = sales_data["date"].min()
 date_max = sales_data["date"].max()
-top_category = None
-if "category" in sales_data.columns and sales_data["category"].notna().any():
-    category_summary = (
-        sales_data.groupby("category", as_index=False)
-        .agg(revenue=("revenue", "sum"), margin=("gross_margin", "sum"), quantity=("quantity", "sum"))
-        .sort_values("revenue", ascending=False)
-        .reset_index(drop=True)
-    )
-    top_category = category_summary.iloc[0]
-else:
-    category_summary = pd.DataFrame()
+dimension_summaries = {column: summarise_dimension(sales_data, column) for column in dimension_columns}
+primary_dimension = dimension_columns[0] if len(dimension_columns) > 0 else None
+secondary_dimension = dimension_columns[1] if len(dimension_columns) > 1 else None
+tertiary_dimension = dimension_columns[2] if len(dimension_columns) > 2 else None
 
-top_state = None
-if "state" in sales_data.columns and sales_data["state"].notna().any():
-    state_summary = (
-        sales_data.groupby("state", as_index=False)
-        .agg(revenue=("revenue", "sum"), margin=("gross_margin", "sum"), orders=("revenue", "size"))
-        .sort_values("revenue", ascending=False)
-        .reset_index(drop=True)
-    )
-    top_state = state_summary.iloc[0]
-else:
-    state_summary = pd.DataFrame()
-
-top_payment = None
-if "payment_mode" in sales_data.columns and sales_data["payment_mode"].notna().any():
-    payment_summary = (
-        sales_data.groupby("payment_mode", as_index=False)
-        .agg(revenue=("revenue", "sum"), margin=("gross_margin", "sum"), orders=("revenue", "size"))
-        .sort_values("revenue", ascending=False)
-        .reset_index(drop=True)
-    )
-    top_payment = payment_summary.iloc[0]
-else:
-    payment_summary = pd.DataFrame()
+top_primary = (
+    dimension_summaries[primary_dimension].iloc[0]
+    if primary_dimension and not dimension_summaries[primary_dimension].empty
+    else None
+)
+top_secondary = (
+    dimension_summaries[secondary_dimension].iloc[0]
+    if secondary_dimension and not dimension_summaries[secondary_dimension].empty
+    else None
+)
+top_tertiary = (
+    dimension_summaries[tertiary_dimension].iloc[0]
+    if tertiary_dimension and not dimension_summaries[tertiary_dimension].empty
+    else None
+)
 
 if "year_month" in sales_data.columns and sales_data["year_month"].notna().any():
     monthly_summary = (
@@ -849,12 +866,12 @@ with alert_right:
 
 focus_1, focus_2, focus_3 = st.columns(3)
 with focus_1:
-    if top_category is not None:
+    if top_primary is not None and primary_dimension is not None:
         render_snapshot_card(
-            "Top Category",
-            str(top_category["category"]),
-            "This category is currently driving the largest share of sales volume in the uploaded dataset.",
-            f"Revenue {format_currency(float(top_category['revenue']))}",
+            f"Top {format_label(primary_dimension)}",
+            str(top_primary[primary_dimension]),
+            "This dimension is currently driving the strongest revenue concentration in the active filtered view.",
+            f"Revenue {format_currency(float(top_primary['revenue']))}",
         )
     else:
         render_snapshot_card(
@@ -864,12 +881,12 @@ with focus_1:
             f"Margin {format_currency(float(insights.product_performance.iloc[0]['total_margin']))}",
         )
 with focus_2:
-    if top_state is not None:
+    if top_secondary is not None and secondary_dimension is not None:
         render_snapshot_card(
-            "Top State",
-            str(top_state["state"]),
-            "Geographic concentration matters for targeting campaigns and inventory planning.",
-            f"Revenue {format_currency(float(top_state['revenue']))}",
+            f"Top {format_label(secondary_dimension)}",
+            str(top_secondary[secondary_dimension]),
+            "This slice is worth watching closely because it is carrying a large share of current performance.",
+            f"Revenue {format_currency(float(top_secondary['revenue']))}",
         )
     else:
         render_snapshot_card(
@@ -879,12 +896,12 @@ with focus_2:
             f"Margin {format_currency(float(insights.product_performance.iloc[0]['total_margin']))}",
         )
 with focus_3:
-    if top_payment is not None:
+    if top_tertiary is not None and tertiary_dimension is not None:
         render_snapshot_card(
-            "Top Payment Mode",
-            str(top_payment["payment_mode"]),
-            "Useful for checkout optimization and understanding which channels customers prefer.",
-            f"Orders {format_number(float(top_payment['orders']))}",
+            f"Top {format_label(tertiary_dimension)}",
+            str(top_tertiary[tertiary_dimension]),
+            "This is the third-most useful adaptive lens for spotting concentration and growth opportunities.",
+            f"Rows {format_number(float(top_tertiary['rows']))}",
         )
     else:
         render_snapshot_card(
@@ -1070,41 +1087,56 @@ with market_tab:
     market_left, market_right = st.columns((1, 1))
 
     with market_left:
-        if not category_summary.empty:
+        if primary_dimension and not dimension_summaries[primary_dimension].empty:
             st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            st.markdown('<div class="section-label">Category Mix</div>', unsafe_allow_html=True)
-            st.subheader("Revenue by Category")
-            st.bar_chart(category_summary.set_index("category")["revenue"], use_container_width=True, color="#0e8f79")
-            category_view = category_summary.copy()
-            category_view["revenue"] = category_view["revenue"].map(format_currency)
-            category_view["margin"] = category_view["margin"].map(format_currency)
-            category_view["quantity"] = category_view["quantity"].map(format_number)
-            st.dataframe(category_view, use_container_width=True, hide_index=True)
+            st.markdown(f'<div class="section-label">{format_label(primary_dimension)} Mix</div>', unsafe_allow_html=True)
+            st.subheader(f"Revenue by {format_label(primary_dimension)}")
+            st.bar_chart(
+                dimension_summaries[primary_dimension].set_index(primary_dimension)["revenue"],
+                use_container_width=True,
+                color="#0e8f79",
+            )
+            primary_view = dimension_summaries[primary_dimension].copy()
+            primary_view["revenue"] = primary_view["revenue"].map(format_currency)
+            primary_view["margin"] = primary_view["margin"].map(format_currency)
+            primary_view["quantity"] = primary_view["quantity"].map(format_number)
+            primary_view["rows"] = primary_view["rows"].map(format_number)
+            st.dataframe(primary_view, use_container_width=True, hide_index=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-        if not payment_summary.empty:
+        if secondary_dimension and not dimension_summaries[secondary_dimension].empty:
             st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            st.markdown('<div class="section-label">Checkout Behavior</div>', unsafe_allow_html=True)
-            st.subheader("Payment Modes")
-            st.bar_chart(payment_summary.set_index("payment_mode")["revenue"], use_container_width=True, color="#c9852d")
-            payment_view = payment_summary.copy()
-            payment_view["revenue"] = payment_view["revenue"].map(format_currency)
-            payment_view["margin"] = payment_view["margin"].map(format_currency)
-            payment_view["orders"] = payment_view["orders"].map(format_number)
-            st.dataframe(payment_view, use_container_width=True, hide_index=True)
+            st.markdown(f'<div class="section-label">{format_label(secondary_dimension)} Behavior</div>', unsafe_allow_html=True)
+            st.subheader(f"Revenue by {format_label(secondary_dimension)}")
+            st.bar_chart(
+                dimension_summaries[secondary_dimension].set_index(secondary_dimension)["revenue"],
+                use_container_width=True,
+                color="#c9852d",
+            )
+            secondary_view = dimension_summaries[secondary_dimension].copy()
+            secondary_view["revenue"] = secondary_view["revenue"].map(format_currency)
+            secondary_view["margin"] = secondary_view["margin"].map(format_currency)
+            secondary_view["quantity"] = secondary_view["quantity"].map(format_number)
+            secondary_view["rows"] = secondary_view["rows"].map(format_number)
+            st.dataframe(secondary_view, use_container_width=True, hide_index=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
     with market_right:
-        if not state_summary.empty:
+        if tertiary_dimension and not dimension_summaries[tertiary_dimension].empty:
             st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            st.markdown('<div class="section-label">Geography</div>', unsafe_allow_html=True)
-            st.subheader("Top States by Revenue")
-            st.bar_chart(state_summary.head(10).set_index("state")["revenue"], use_container_width=True, color="#c0543f")
-            state_view = state_summary.head(10).copy()
-            state_view["revenue"] = state_view["revenue"].map(format_currency)
-            state_view["margin"] = state_view["margin"].map(format_currency)
-            state_view["orders"] = state_view["orders"].map(format_number)
-            st.dataframe(state_view, use_container_width=True, hide_index=True)
+            st.markdown(f'<div class="section-label">{format_label(tertiary_dimension)}</div>', unsafe_allow_html=True)
+            st.subheader(f"Top {format_label(tertiary_dimension)} by Revenue")
+            st.bar_chart(
+                dimension_summaries[tertiary_dimension].head(10).set_index(tertiary_dimension)["revenue"],
+                use_container_width=True,
+                color="#c0543f",
+            )
+            tertiary_view = dimension_summaries[tertiary_dimension].head(10).copy()
+            tertiary_view["revenue"] = tertiary_view["revenue"].map(format_currency)
+            tertiary_view["margin"] = tertiary_view["margin"].map(format_currency)
+            tertiary_view["quantity"] = tertiary_view["quantity"].map(format_number)
+            tertiary_view["rows"] = tertiary_view["rows"].map(format_number)
+            st.dataframe(tertiary_view, use_container_width=True, hide_index=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
