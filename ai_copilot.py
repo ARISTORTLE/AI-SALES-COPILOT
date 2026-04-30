@@ -41,6 +41,52 @@ def build_copilot_payload(
     return json.dumps(payload, indent=2)
 
 
+def _groq_chat_completion(
+    api_key: str,
+    system_instructions: str,
+    user_content: str,
+    model: str = DEFAULT_MODEL,
+) -> str:
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_instructions},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0.4,
+    }
+
+    request = Request(
+        url=f"{GROQ_BASE_URL}/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "AI-Sales-CoPilot/1.0 (+Streamlit; Python urllib)",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=60) as response:
+            parsed = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Groq API request failed: {detail or exc.reason}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Could not reach Groq API: {exc.reason}") from exc
+
+    choices = parsed.get("choices", [])
+    if not choices:
+        raise RuntimeError("Groq API returned no choices.")
+
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if not content:
+        raise RuntimeError("Groq API returned an empty response.")
+    return content.strip()
+
+
 def generate_owner_brief(
     api_key: str,
     payload: str,
@@ -75,41 +121,62 @@ Business focus:
 {focus}
 """.strip()
 
-    body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": instructions},
-            {"role": "user", "content": f"Sales analytics payload:\n{payload}"},
-        ],
-        "temperature": 0.4,
-    }
+    return _groq_chat_completion(
+        api_key=api_key,
+        system_instructions=instructions,
+        user_content=f"Sales analytics payload:\n{payload}",
+        model=model,
+    )
 
-    request = Request(
-        url=f"{GROQ_BASE_URL}/chat/completions",
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "AI-Sales-CoPilot/1.0 (+Streamlit; Python urllib)",
-        },
-        method="POST",
+
+def generate_action_roadmap(
+    api_key: str,
+    payload: str,
+    model: str = DEFAULT_MODEL,
+    focus_prompt: str = "",
+) -> dict[str, Any]:
+    focus = focus_prompt.strip() or (
+        "Focus on practical weekly actions that improve revenue, profit quality, and operational discipline."
+    )
+
+    instructions = f"""
+You are an expert AI sales operating advisor.
+
+You will receive structured analytics from a sales dashboard. Return only valid JSON with this exact shape:
+
+{{
+  "headline": "short string",
+  "priority": "short string",
+  "steps": [
+    {{
+      "phase": "Fix Now | Grow Next | Scale Later",
+      "title": "short string",
+      "why": "1 to 2 sentences",
+      "actions": ["action 1", "action 2", "action 3"],
+      "impact": "short string"
+    }}
+  ]
+}}
+
+Rules:
+- Return exactly 3 steps.
+- Be specific and practical.
+- Do not include markdown fences.
+- Do not invent facts not supported by the payload.
+- Keep wording founder-friendly and visual.
+
+Business focus:
+{focus}
+""".strip()
+
+    response = _groq_chat_completion(
+        api_key=api_key,
+        system_instructions=instructions,
+        user_content=f"Sales analytics payload:\n{payload}",
+        model=model,
     )
 
     try:
-        with urlopen(request, timeout=60) as response:
-            parsed = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"Groq API request failed: {detail or exc.reason}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"Could not reach Groq API: {exc.reason}") from exc
-
-    choices = parsed.get("choices", [])
-    if not choices:
-        raise RuntimeError("Groq API returned no choices.")
-
-    message = choices[0].get("message", {})
-    content = message.get("content", "")
-    if not content:
-        raise RuntimeError("Groq API returned an empty response.")
-    return content.strip()
+        return json.loads(response)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Groq roadmap returned invalid JSON.") from exc

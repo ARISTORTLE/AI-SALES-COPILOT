@@ -6,7 +6,12 @@ import pandas as pd
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
-from ai_copilot import DEFAULT_MODEL, build_copilot_payload, generate_owner_brief
+from ai_copilot import (
+    DEFAULT_MODEL,
+    build_copilot_payload,
+    generate_action_roadmap,
+    generate_owner_brief,
+)
 from analyzer import build_insights, prepare_sales_data
 
 
@@ -318,6 +323,28 @@ def inject_styles() -> None:
             color: var(--ink);
         }
 
+        .alert-banner {
+            border-radius: 22px;
+            padding: 1rem 1.05rem;
+            margin-bottom: 0.9rem;
+            border: 1px solid rgba(19, 36, 58, 0.10);
+            box-shadow: var(--shadow);
+        }
+
+        .alert-banner strong {
+            display: block;
+            margin-bottom: 0.2rem;
+            font-family: 'Space Grotesk', sans-serif;
+        }
+
+        .alert-risk {
+            background: linear-gradient(135deg, rgba(192, 84, 63, 0.12), rgba(201, 133, 45, 0.12));
+        }
+
+        .alert-opportunity {
+            background: linear-gradient(135deg, rgba(14, 143, 121, 0.12), rgba(201, 133, 45, 0.10));
+        }
+
         .mini-note {
             color: var(--muted);
             font-size: 0.94rem;
@@ -397,6 +424,60 @@ def inject_styles() -> None:
             color: #ffe3b9;
         }
 
+        .roadmap-card {
+            border-radius: 24px;
+            padding: 1.15rem;
+            box-shadow: var(--shadow);
+            border: 1px solid rgba(19, 36, 58, 0.08);
+            min-height: 260px;
+            margin-bottom: 1rem;
+        }
+
+        .roadmap-now {
+            background: linear-gradient(150deg, rgba(192, 84, 63, 0.14), rgba(255, 252, 246, 0.95));
+        }
+
+        .roadmap-next {
+            background: linear-gradient(150deg, rgba(201, 133, 45, 0.16), rgba(255, 252, 246, 0.95));
+        }
+
+        .roadmap-later {
+            background: linear-gradient(150deg, rgba(14, 143, 121, 0.14), rgba(255, 252, 246, 0.95));
+        }
+
+        .roadmap-phase {
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 700;
+            color: var(--muted);
+            margin-bottom: 0.3rem;
+        }
+
+        .roadmap-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.35rem;
+            color: var(--ink);
+            margin-bottom: 0.4rem;
+        }
+
+        .roadmap-why {
+            color: var(--muted);
+            font-size: 0.95rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .roadmap-impact {
+            display: inline-block;
+            margin-top: 0.6rem;
+            padding: 0.35rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(19, 36, 58, 0.07);
+            color: var(--ink);
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+
         @media (max-width: 900px) {
             .hero-title {
                 font-size: 2.2rem;
@@ -445,6 +526,39 @@ def render_snapshot_card(label: str, title: str, body: str, stat: str) -> None:
             <div class="snapshot-title">{title}</div>
             <div class="snapshot-copy">{body}</div>
             <div class="snapshot-stat">{stat}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_alert(title: str, body: str, tone: str = "opportunity") -> None:
+    st.markdown(
+        f"""
+        <div class="alert-banner alert-{tone}">
+            <strong>{title}</strong>
+            <span>{body}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_roadmap_card(phase: str, title: str, why: str, actions: list[str], impact: str) -> None:
+    phase_class = {
+        "Fix Now": "roadmap-now",
+        "Grow Next": "roadmap-next",
+        "Scale Later": "roadmap-later",
+    }.get(phase, "roadmap-next")
+    actions_html = "".join(f"<li>{action}</li>" for action in actions[:3])
+    st.markdown(
+        f"""
+        <div class="roadmap-card {phase_class}">
+            <div class="roadmap-phase">{phase}</div>
+            <div class="roadmap-title">{title}</div>
+            <div class="roadmap-why">{why}</div>
+            <ul>{actions_html}</ul>
+            <div class="roadmap-impact">{impact}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -595,11 +709,50 @@ if not uploaded_file:
 
 try:
     raw_data = load_uploaded_data(uploaded_file)
-    sales_data = prepare_sales_data(raw_data)
-    insights = build_insights(sales_data)
+    all_sales_data = prepare_sales_data(raw_data)
 except Exception as exc:
     st.error(str(exc))
     st.stop()
+
+filter_cols = st.columns(4)
+with filter_cols[0]:
+    category_options = sorted(all_sales_data["category"].dropna().unique().tolist()) if "category" in all_sales_data.columns else []
+    selected_categories = st.multiselect("Category", category_options)
+with filter_cols[1]:
+    state_options = sorted(all_sales_data["state"].dropna().unique().tolist()) if "state" in all_sales_data.columns else []
+    selected_states = st.multiselect("State", state_options)
+with filter_cols[2]:
+    payment_options = sorted(all_sales_data["payment_mode"].dropna().unique().tolist()) if "payment_mode" in all_sales_data.columns else []
+    selected_payments = st.multiselect("Payment Mode", payment_options)
+with filter_cols[3]:
+    min_date = all_sales_data["date"].min().date()
+    max_date = all_sales_data["date"].max().date()
+    selected_dates = st.date_input(
+        "Date Range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date,
+    )
+
+sales_data = all_sales_data.copy()
+if selected_categories:
+    sales_data = sales_data[sales_data["category"].isin(selected_categories)]
+if selected_states:
+    sales_data = sales_data[sales_data["state"].isin(selected_states)]
+if selected_payments:
+    sales_data = sales_data[sales_data["payment_mode"].isin(selected_payments)]
+if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
+    start_date, end_date = selected_dates
+    sales_data = sales_data[
+        (sales_data["date"].dt.date >= start_date) &
+        (sales_data["date"].dt.date <= end_date)
+    ]
+
+if sales_data.empty:
+    st.warning("No rows match the current filters. Broaden the selection to continue.")
+    st.stop()
+
+insights = build_insights(sales_data)
 
 date_min = sales_data["date"].min()
 date_max = sales_data["date"].max()
@@ -678,6 +831,22 @@ with kpi_3:
 with kpi_4:
     render_kpi("7-Day Forecast", format_currency(insights.summary["predicted_revenue_7d"]), "Simple linear projection from recent trend")
 
+alert_left, alert_right = st.columns(2)
+with alert_left:
+    weakest_day = insights.weekday_performance.loc[insights.weekday_performance["avg_revenue"].idxmin()]
+    render_alert(
+        "Risk Signal",
+        f"{weakest_day['weekday']} is your weakest sales day in the current filtered view. Build campaigns or bundles around that dip first.",
+        tone="risk",
+    )
+with alert_right:
+    top_product = insights.product_performance.iloc[0]
+    render_alert(
+        "Growth Opportunity",
+        f"{top_product['product']} is leading profit contribution right now. Double down on visibility, bundles, or upsell strategy around it.",
+        tone="opportunity",
+    )
+
 focus_1, focus_2, focus_3 = st.columns(3)
 with focus_1:
     if top_category is not None:
@@ -751,6 +920,8 @@ with config_col:
     else:
         st.caption("Add a Groq API key in the sidebar to enable the Groq briefing.")
 
+roadmap_trigger = st.button("Build AI Action Roadmap", use_container_width=True)
+
 if trigger_brief:
     if not api_key_input:
         st.warning("Add a Groq API key in the sidebar first, then generate the Groq briefing.")
@@ -774,11 +945,52 @@ if trigger_brief:
             except Exception as exc:
                 st.error(f"AI briefing failed: {exc}")
 
+if roadmap_trigger:
+    if not api_key_input:
+        st.warning("Add a Groq API key in the sidebar first, then build the roadmap.")
+    else:
+        payload = build_copilot_payload(
+            summary=insights.summary,
+            insight_cards=insights.insight_cards,
+            weekday_performance=insights.weekday_performance,
+            product_performance=insights.product_performance,
+            restock_table=insights.restock_table,
+            business_context=business_context,
+        )
+        with st.spinner("Building your action roadmap..."):
+            try:
+                st.session_state["action_roadmap"] = generate_action_roadmap(
+                    api_key=api_key_input,
+                    payload=payload,
+                    model=model_name.strip() or DEFAULT_MODEL,
+                    focus_prompt=focus_prompt,
+                )
+            except Exception as exc:
+                st.error(f"AI roadmap failed: {exc}")
+
 if st.session_state.get("owner_brief"):
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="section-label">Owner Briefing</div>', unsafe_allow_html=True)
     st.subheader("What the Groq sales copilot recommends")
     st.markdown(st.session_state["owner_brief"])
+    st.markdown('</div>', unsafe_allow_html=True)
+
+roadmap = st.session_state.get("action_roadmap")
+if roadmap:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">AI Roadmap</div>', unsafe_allow_html=True)
+    st.subheader(roadmap.get("headline", "Step-by-step growth roadmap"))
+    st.caption(roadmap.get("priority", ""))
+    roadmap_cols = st.columns(3)
+    for col, step in zip(roadmap_cols, roadmap.get("steps", [])[:3]):
+        with col:
+            render_roadmap_card(
+                phase=step.get("phase", "Grow Next"),
+                title=step.get("title", "Action"),
+                why=step.get("why", ""),
+                actions=step.get("actions", []),
+                impact=step.get("impact", ""),
+            )
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
